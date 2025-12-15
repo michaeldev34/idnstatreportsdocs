@@ -2,222 +2,138 @@
 Production KPIs
 
 Metrics for production and manufacturing performance analysis.
+Calculates KPIs per observation for time series, panel, and cross-sectional data.
 """
 
 import pandas as pd
 import numpy as np
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 
 class ProductionKPIs:
     """
     Production-specific KPI calculations.
 
-    KPIs:
-    - Production Volume
-    - Production Efficiency (OEE)
-    - Capacity Utilization
-    - Yield Rate
-    - Scrap Rate
-    - Downtime Percentage
+    Calculates per-observation KPIs:
+    - Production Volume (per period)
+    - Production Efficiency (OEE) (per period)
+    - Capacity Utilization (per period)
+    - Yield Rate (per period)
+    - Scrap Rate (per period)
+    - Downtime Percentage (per period)
     """
 
-    def calculate_all(self, df: pd.DataFrame) -> List[Dict[str, Any]]:
-        """Calculate all applicable production KPIs."""
+    def calculate_all(self, df: pd.DataFrame, data_type: str = 'time_series') -> List[Dict[str, Any]]:
+        """Calculate all applicable production KPIs per observation."""
         results = []
 
         # Try to calculate each KPI
         if self._has_volume_data(df):
-            results.append(self.production_volume(df))
+            results.append(self.production_volume(df, data_type))
 
         if self._has_efficiency_data(df):
-            results.append(self.production_efficiency(df))
+            results.append(self.production_efficiency(df, data_type))
 
         if self._has_utilization_data(df):
-            results.append(self.capacity_utilization(df))
-
-        if self._has_yield_data(df):
-            results.append(self.yield_rate(df))
-
-        if self._has_scrap_data(df):
-            results.append(self.scrap_rate(df))
+            results.append(self.capacity_utilization(df, data_type))
 
         if self._has_downtime_data(df):
-            results.append(self.downtime_percentage(df))
+            results.append(self.downtime_percentage(df, data_type))
 
         return results
 
-    def production_volume(self, df: pd.DataFrame) -> Dict[str, Any]:
-        """
-        Calculate total production volume.
+    def _calculate_summary_stats(self, series: pd.Series, kpi_name: str, unit: str) -> Dict[str, Any]:
+        """Calculate summary statistics for a KPI series."""
+        clean_series = series.replace([np.inf, -np.inf], np.nan).dropna()
 
-        Formula: Sum of units produced
+        if len(clean_series) == 0:
+            return {
+                'kpi': kpi_name, 'unit': unit, 'series': series,
+                'mean': None, 'median': None, 'std': None,
+                'min': None, 'max': None, 'n_observations': 0,
+                'error': 'No valid observations'
+            }
+
+        return {
+            'kpi': kpi_name, 'unit': unit, 'series': series,
+            'mean': round(clean_series.mean(), 2),
+            'median': round(clean_series.median(), 2),
+            'std': round(clean_series.std(), 2),
+            'min': round(clean_series.min(), 2),
+            'max': round(clean_series.max(), 2),
+            'n_observations': len(clean_series),
+            'current': round(clean_series.iloc[-1], 2) if len(clean_series) > 0 else None
+        }
+
+    def production_volume(self, df: pd.DataFrame, data_type: str = 'time_series') -> Dict[str, Any]:
+        """
+        Calculate production volume per observation.
+
+        Formula: Units produced per period
         """
         volume_col = self._find_column(df, ['units_produced', 'production_volume', 'output', 'units', 'quantity_produced'])
 
         if volume_col is None:
             return {'kpi': 'Production Volume', 'value': None, 'unit': 'units', 'error': 'Missing data'}
 
-        total_volume = df[volume_col].sum()
-        avg_volume = df[volume_col].mean()
+        series = df[volume_col].copy()
+        series.name = 'production_volume'
 
-        return {
-            'kpi': 'Production Volume',
-            'value': round(total_volume, 0),
-            'unit': 'units',
-            'average_per_period': round(avg_volume, 2),
-            'periods': len(df)
-        }
+        return self._calculate_summary_stats(series, 'Production Volume', 'units')
 
-    def production_efficiency(self, df: pd.DataFrame) -> Dict[str, Any]:
+    def production_efficiency(self, df: pd.DataFrame, data_type: str = 'time_series') -> Dict[str, Any]:
         """
-        Calculate Overall Equipment Effectiveness (OEE).
+        Calculate OEE per observation.
 
-        Formula: (Actual Output / Theoretical Maximum Output) * 100
+        Formula: (Actual Output / Theoretical Maximum Output) * 100 per period
         """
         actual_col = self._find_column(df, ['units_produced', 'actual_output', 'output', 'units'])
         max_col = self._find_column(df, ['capacity', 'max_output', 'planned_output', 'theoretical_output'])
 
         if actual_col is None or max_col is None:
-            # Alternative: use production_hours vs planned_time
             prod_hours = self._find_column(df, ['production_hours', 'actual_hours', 'working_hours'])
             planned_hours = self._find_column(df, ['planned_time', 'planned_hours', 'available_time'])
 
             if prod_hours is not None and planned_hours is not None:
-                total_prod = df[prod_hours].sum()
-                total_planned = df[planned_hours].sum()
-
-                if total_planned == 0:
-                    efficiency = 0
-                else:
-                    efficiency = (total_prod / total_planned) * 100
-
-                return {
-                    'kpi': 'Production Efficiency',
-                    'value': round(efficiency, 2),
-                    'unit': '%',
-                    'production_hours': total_prod,
-                    'planned_hours': total_planned
-                }
+                series = (df[prod_hours] / df[planned_hours].replace(0, np.nan)) * 100
+                series.name = 'production_efficiency'
+                return self._calculate_summary_stats(series, 'Production Efficiency', '%')
 
             return {'kpi': 'Production Efficiency', 'value': None, 'unit': '%', 'error': 'Missing data'}
 
-        total_actual = df[actual_col].sum()
-        total_max = df[max_col].sum()
+        series = (df[actual_col] / df[max_col].replace(0, np.nan)) * 100
+        series.name = 'production_efficiency'
 
-        if total_max == 0:
-            efficiency = 0
-        else:
-            efficiency = (total_actual / total_max) * 100
+        return self._calculate_summary_stats(series, 'Production Efficiency', '%')
 
-        return {
-            'kpi': 'Production Efficiency',
-            'value': round(efficiency, 2),
-            'unit': '%',
-            'actual_output': total_actual,
-            'theoretical_max': total_max
-        }
-
-    def capacity_utilization(self, df: pd.DataFrame) -> Dict[str, Any]:
+    def capacity_utilization(self, df: pd.DataFrame, data_type: str = 'time_series') -> Dict[str, Any]:
         """
-        Calculate Capacity Utilization Rate.
+        Calculate Capacity Utilization per observation.
 
-        Formula: (Actual Production / Maximum Capacity) * 100
+        Formula: (Actual Production / Maximum Capacity) * 100 per period
         """
         utilization_col = self._find_column(df, ['utilization', 'capacity_utilization', 'utilization_rate'])
 
         if utilization_col is not None:
-            avg_utilization = df[utilization_col].mean()
-            return {
-                'kpi': 'Capacity Utilization',
-                'value': round(avg_utilization, 2),
-                'unit': '%'
-            }
+            series = df[utilization_col].copy()
+            series.name = 'capacity_utilization'
+            return self._calculate_summary_stats(series, 'Capacity Utilization', '%')
 
-        # Calculate from uptime and planned time
         uptime_col = self._find_column(df, ['uptime', 'operating_time', 'run_time'])
         planned_col = self._find_column(df, ['planned_time', 'available_time', 'scheduled_time'])
 
         if uptime_col is not None and planned_col is not None:
-            total_uptime = df[uptime_col].sum()
-            total_planned = df[planned_col].sum()
-
-            if total_planned == 0:
-                utilization = 0
-            else:
-                utilization = (total_uptime / total_planned) * 100
-
-            return {
-                'kpi': 'Capacity Utilization',
-                'value': round(utilization, 2),
-                'unit': '%',
-                'total_uptime': total_uptime,
-                'total_planned_time': total_planned
-            }
+            series = (df[uptime_col] / df[planned_col].replace(0, np.nan)) * 100
+            series.name = 'capacity_utilization'
+            return self._calculate_summary_stats(series, 'Capacity Utilization', '%')
 
         return {'kpi': 'Capacity Utilization', 'value': None, 'unit': '%', 'error': 'Missing data'}
 
-    def yield_rate(self, df: pd.DataFrame) -> Dict[str, Any]:
+    def downtime_percentage(self, df: pd.DataFrame, data_type: str = 'time_series') -> Dict[str, Any]:
         """
-        Calculate Yield Rate (First Pass Yield).
+        Calculate Downtime Percentage per observation.
 
-        Formula: (Good Units / Total Units Produced) * 100
-        """
-        good_col = self._find_column(df, ['good_units', 'passed_units', 'quality_passed'])
-        total_col = self._find_column(df, ['units_produced', 'total_units', 'production_volume'])
-
-        if good_col is None or total_col is None:
-            return {'kpi': 'Yield Rate', 'value': None, 'unit': '%', 'error': 'Missing data'}
-
-        total_good = df[good_col].sum()
-        total_produced = df[total_col].sum()
-
-        if total_produced == 0:
-            yield_rate = 0
-        else:
-            yield_rate = (total_good / total_produced) * 100
-
-        return {
-            'kpi': 'Yield Rate',
-            'value': round(yield_rate, 2),
-            'unit': '%',
-            'good_units': total_good,
-            'total_produced': total_produced
-        }
-
-    def scrap_rate(self, df: pd.DataFrame) -> Dict[str, Any]:
-        """
-        Calculate Scrap Rate.
-
-        Formula: (Scrap Units / Total Units Produced) * 100
-        """
-        scrap_col = self._find_column(df, ['scrap', 'scrap_units', 'defects', 'rejected_units'])
-        total_col = self._find_column(df, ['units_produced', 'total_units', 'production_volume'])
-
-        if scrap_col is None or total_col is None:
-            return {'kpi': 'Scrap Rate', 'value': None, 'unit': '%', 'error': 'Missing data'}
-
-        total_scrap = df[scrap_col].sum()
-        total_produced = df[total_col].sum()
-
-        if total_produced == 0:
-            scrap_rate = 0
-        else:
-            scrap_rate = (total_scrap / total_produced) * 100
-
-        return {
-            'kpi': 'Scrap Rate',
-            'value': round(scrap_rate, 2),
-            'unit': '%',
-            'scrap_units': total_scrap,
-            'total_produced': total_produced
-        }
-
-    def downtime_percentage(self, df: pd.DataFrame) -> Dict[str, Any]:
-        """
-        Calculate Downtime Percentage.
-
-        Formula: (Downtime / Total Available Time) * 100
+        Formula: (Downtime / Total Available Time) * 100 per period
         """
         downtime_col = self._find_column(df, ['downtime', 'unplanned_downtime', 'maintenance_time'])
         total_col = self._find_column(df, ['planned_time', 'available_time', 'total_time'])
@@ -225,23 +141,12 @@ class ProductionKPIs:
         if downtime_col is None or total_col is None:
             return {'kpi': 'Downtime Percentage', 'value': None, 'unit': '%', 'error': 'Missing data'}
 
-        total_downtime = df[downtime_col].sum()
-        total_available = df[total_col].sum()
+        series = (df[downtime_col] / df[total_col].replace(0, np.nan)) * 100
+        series.name = 'downtime_percentage'
 
-        if total_available == 0:
-            downtime_pct = 0
-        else:
-            downtime_pct = (total_downtime / total_available) * 100
+        return self._calculate_summary_stats(series, 'Downtime Percentage', '%')
 
-        return {
-            'kpi': 'Downtime Percentage',
-            'value': round(downtime_pct, 2),
-            'unit': '%',
-            'total_downtime': total_downtime,
-            'total_available_time': total_available
-        }
-
-    def _find_column(self, df: pd.DataFrame, possible_names: List[str]) -> str:
+    def _find_column(self, df: pd.DataFrame, possible_names: List[str]) -> Optional[str]:
         """Find a column by checking multiple possible names."""
         for name in possible_names:
             for col in df.columns:
@@ -264,12 +169,6 @@ class ProductionKPIs:
         has_calculated = self._find_column(df, ['uptime']) is not None and \
                         self._find_column(df, ['planned_time']) is not None
         return has_direct or has_calculated
-
-    def _has_yield_data(self, df: pd.DataFrame) -> bool:
-        return self._find_column(df, ['good_units', 'passed_units']) is not None
-
-    def _has_scrap_data(self, df: pd.DataFrame) -> bool:
-        return self._find_column(df, ['scrap', 'scrap_units', 'defects']) is not None
 
     def _has_downtime_data(self, df: pd.DataFrame) -> bool:
         return self._find_column(df, ['downtime', 'unplanned_downtime']) is not None

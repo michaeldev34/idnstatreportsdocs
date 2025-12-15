@@ -2,125 +2,117 @@
 Sales KPIs
 
 Metrics for sales performance analysis.
+Calculates KPIs per observation for time series, panel, and cross-sectional data.
 """
 
 import pandas as pd
 import numpy as np
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 
 class SalesKPIs:
     """
     Sales-specific KPI calculations.
 
-    KPIs:
-    - Average Order Value (AOV)
-    - Sales Growth Rate
-    - Win Rate
-    - Average Deal Size
-    - Sales per Rep
+    Calculates per-observation KPIs:
+    - Average Order Value (AOV) (per period)
+    - Sales Growth Rate (period-over-period)
+    - Win Rate (per period)
+    - Revenue per Order (per period)
     """
 
-    def calculate_all(self, df: pd.DataFrame) -> List[Dict[str, Any]]:
-        """Calculate all applicable sales KPIs."""
+    def calculate_all(self, df: pd.DataFrame, data_type: str = 'time_series') -> List[Dict[str, Any]]:
+        """Calculate all applicable sales KPIs per observation."""
         results = []
 
         if self._has_aov_data(df):
-            results.append(self.average_order_value(df))
+            results.append(self.average_order_value(df, data_type))
 
         if self._has_growth_data(df):
-            results.append(self.sales_growth_rate(df))
+            results.append(self.sales_growth_rate(df, data_type))
 
         if self._has_win_rate_data(df):
-            results.append(self.win_rate(df))
+            results.append(self.win_rate(df, data_type))
 
         return results
 
-    def average_order_value(self, df: pd.DataFrame) -> Dict[str, Any]:
-        """
-        Calculate Average Order Value.
+    def _calculate_summary_stats(self, series: pd.Series, kpi_name: str, unit: str) -> Dict[str, Any]:
+        """Calculate summary statistics for a KPI series."""
+        clean_series = series.replace([np.inf, -np.inf], np.nan).dropna()
 
-        Formula: Total Revenue / Number of Orders
-        """
-        revenue = self._find_column(df, ['revenue', 'sales', 'total_sales'])
-        orders = self._find_column(df, ['orders', 'transactions', 'deals'])
+        if len(clean_series) == 0:
+            return {
+                'kpi': kpi_name, 'unit': unit, 'series': series,
+                'mean': None, 'median': None, 'std': None,
+                'min': None, 'max': None, 'n_observations': 0,
+                'error': 'No valid observations'
+            }
 
-        if revenue is None or orders is None:
+        return {
+            'kpi': kpi_name, 'unit': unit, 'series': series,
+            'mean': round(clean_series.mean(), 2),
+            'median': round(clean_series.median(), 2),
+            'std': round(clean_series.std(), 2),
+            'min': round(clean_series.min(), 2),
+            'max': round(clean_series.max(), 2),
+            'n_observations': len(clean_series),
+            'current': round(clean_series.iloc[-1], 2) if len(clean_series) > 0 else None
+        }
+
+    def average_order_value(self, df: pd.DataFrame, data_type: str = 'time_series') -> Dict[str, Any]:
+        """
+        Calculate Average Order Value per observation.
+
+        Formula: Revenue / Orders for each row
+        """
+        revenue_col = self._find_column(df, ['revenue', 'sales', 'total_sales'])
+        orders_col = self._find_column(df, ['orders', 'transactions', 'deals'])
+
+        if revenue_col is None or orders_col is None:
             return {'kpi': 'Average Order Value', 'value': None, 'unit': '$', 'error': 'Missing data'}
 
-        total_revenue = df[revenue].sum()
-        total_orders = df[orders].sum()
+        # Calculate per-observation AOV
+        series = df[revenue_col] / df[orders_col].replace(0, np.nan)
+        series.name = 'aov'
 
-        if total_orders == 0:
-            aov = 0
-        else:
-            aov = total_revenue / total_orders
+        return self._calculate_summary_stats(series, 'Average Order Value (AOV)', '$')
 
-        return {
-            'kpi': 'Average Order Value',
-            'value': round(aov, 2),
-            'unit': '$',
-            'total_revenue': total_revenue,
-            'total_orders': total_orders
-        }
-
-    def sales_growth_rate(self, df: pd.DataFrame) -> Dict[str, Any]:
+    def sales_growth_rate(self, df: pd.DataFrame, data_type: str = 'time_series') -> Dict[str, Any]:
         """
-        Calculate Sales Growth Rate.
+        Calculate Sales Growth Rate per observation (period-over-period).
 
-        Formula: ((Current Period - Previous Period) / Previous Period) * 100
+        Formula: ((Current - Previous) / Previous) * 100 for each row
         """
-        sales = self._find_column(df, ['sales', 'revenue', 'total_sales'])
+        sales_col = self._find_column(df, ['sales', 'revenue', 'total_sales'])
 
-        if sales is None or len(df) < 2:
+        if sales_col is None or len(df) < 2:
             return {'kpi': 'Sales Growth Rate', 'value': None, 'unit': '%', 'error': 'Missing data'}
 
-        # Calculate growth between first and last period
-        first_period = df[sales].iloc[:len(df)//2].sum()
-        last_period = df[sales].iloc[len(df)//2:].sum()
+        # Calculate period-over-period growth
+        series = df[sales_col].pct_change() * 100
+        series.name = 'sales_growth'
 
-        if first_period == 0:
-            growth = 0
-        else:
-            growth = ((last_period - first_period) / first_period) * 100
+        return self._calculate_summary_stats(series, 'Sales Growth Rate', '%')
 
-        return {
-            'kpi': 'Sales Growth Rate',
-            'value': round(growth, 2),
-            'unit': '%',
-            'first_period_sales': first_period,
-            'last_period_sales': last_period
-        }
-
-    def win_rate(self, df: pd.DataFrame) -> Dict[str, Any]:
+    def win_rate(self, df: pd.DataFrame, data_type: str = 'time_series') -> Dict[str, Any]:
         """
-        Calculate Win Rate.
+        Calculate Win Rate per observation.
 
-        Formula: (Deals Won / Total Opportunities) * 100
+        Formula: (Deals Won / Opportunities) * 100 for each row
         """
-        won = self._find_column(df, ['won', 'deals_won', 'closed_won'])
-        opportunities = self._find_column(df, ['opportunities', 'leads', 'prospects'])
+        won_col = self._find_column(df, ['won', 'deals_won', 'closed_won'])
+        opps_col = self._find_column(df, ['opportunities', 'leads', 'prospects'])
 
-        if won is None or opportunities is None:
+        if won_col is None or opps_col is None:
             return {'kpi': 'Win Rate', 'value': None, 'unit': '%', 'error': 'Missing data'}
 
-        total_won = df[won].sum()
-        total_opportunities = df[opportunities].sum()
+        # Calculate per-observation win rate
+        series = (df[won_col] / df[opps_col].replace(0, np.nan)) * 100
+        series.name = 'win_rate'
 
-        if total_opportunities == 0:
-            rate = 0
-        else:
-            rate = (total_won / total_opportunities) * 100
+        return self._calculate_summary_stats(series, 'Win Rate', '%')
 
-        return {
-            'kpi': 'Win Rate',
-            'value': round(rate, 2),
-            'unit': '%',
-            'total_won': total_won,
-            'total_opportunities': total_opportunities
-        }
-
-    def _find_column(self, df: pd.DataFrame, possible_names: List[str]) -> str:
+    def _find_column(self, df: pd.DataFrame, possible_names: List[str]) -> Optional[str]:
         """Find a column by checking multiple possible names."""
         for name in possible_names:
             for col in df.columns:

@@ -133,7 +133,8 @@ class PDFReportBuilder:
             </div>
 
             <h2>2. Key Performance Indicators (KPIs)</h2>
-            {self._format_dataframe(kpis)}
+            <p><em>Per-observation KPIs calculated for each time period. Statistics show the distribution across all observations.</em></p>
+            {self._format_kpis(kpis)}
 
             <h2>3. Preprocessing & Tests</h2>
             {self._format_preprocessing(preprocessing)}
@@ -169,7 +170,61 @@ class PDFReportBuilder:
         if df.empty:
             return "<p>No data available.</p>"
         return df.to_html(index=False, classes='data-table')
-    
+
+    def _format_kpis(self, kpis: pd.DataFrame) -> str:
+        """Format KPI summary table with per-observation statistics."""
+        if kpis.empty:
+            return "<p>No KPIs calculated.</p>"
+
+        html = "<table class='data-table'>"
+
+        # Header row
+        html += "<tr>"
+        html += "<th>Category</th>"
+        html += "<th>KPI</th>"
+        html += "<th>Mean</th>"
+        html += "<th>Median</th>"
+        html += "<th>Current</th>"
+        html += "<th>Std Dev</th>"
+        html += "<th>Min</th>"
+        html += "<th>Max</th>"
+        html += "<th>N</th>"
+        html += "<th>Unit</th>"
+        html += "</tr>"
+
+        # Data rows
+        for _, row in kpis.iterrows():
+            html += "<tr>"
+            html += f"<td><strong>{row.get('category', 'N/A')}</strong></td>"
+            html += f"<td>{row.get('kpi', 'N/A')}</td>"
+            html += f"<td>{row.get('mean', 'N/A')}</td>"
+            html += f"<td>{row.get('median', 'N/A')}</td>"
+            html += f"<td>{row.get('current', 'N/A')}</td>"
+            html += f"<td>{row.get('std', 'N/A')}</td>"
+            html += f"<td>{row.get('min', 'N/A')}</td>"
+            html += f"<td>{row.get('max', 'N/A')}</td>"
+            html += f"<td>{row.get('n_observations', 'N/A')}</td>"
+            html += f"<td>{row.get('unit', '')}</td>"
+            html += "</tr>"
+
+        html += "</table>"
+
+        # Add interpretation note
+        html += """
+        <div style="margin-top: 15px; padding: 10px; background: #f0f8ff; border-radius: 5px;">
+            <strong>Reading Guide:</strong>
+            <ul style="margin: 5px 0;">
+                <li><strong>Mean:</strong> Average KPI value across all observations</li>
+                <li><strong>Median:</strong> Middle value (50th percentile)</li>
+                <li><strong>Current:</strong> Most recent observation value</li>
+                <li><strong>Std Dev:</strong> Variability/volatility of the KPI</li>
+                <li><strong>N:</strong> Number of valid observations</li>
+            </ul>
+        </div>
+        """
+
+        return html
+
     def _format_preprocessing(self, preprocessing: Dict[str, Any]) -> str:
         """Format preprocessing results."""
         if not preprocessing or 'test_results' not in preprocessing:

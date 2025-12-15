@@ -2,147 +2,124 @@
 Finance KPIs
 
 Metrics for financial performance analysis.
+Calculates KPIs per observation for time series, panel, and cross-sectional data.
 """
 
 import pandas as pd
 import numpy as np
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 
 class FinanceKPIs:
     """
     Finance-specific KPI calculations.
 
-    KPIs:
-    - Gross Profit Margin
-    - Net Profit Margin
-    - Operating Margin
-    - Revenue Growth
-    - EBITDA Margin
+    Calculates per-observation KPIs:
+    - Gross Profit Margin (per period)
+    - Net Profit Margin (per period)
+    - Revenue Growth (period-over-period)
+    - Operating Expense Ratio (per period)
     """
 
-    def calculate_all(self, df: pd.DataFrame) -> List[Dict[str, Any]]:
-        """Calculate all applicable finance KPIs."""
+    def calculate_all(self, df: pd.DataFrame, data_type: str = 'time_series') -> List[Dict[str, Any]]:
+        """Calculate all applicable finance KPIs per observation."""
         results = []
 
         if self._has_gross_margin_data(df):
-            results.append(self.gross_profit_margin(df))
+            results.append(self.gross_profit_margin(df, data_type))
 
         if self._has_net_margin_data(df):
-            results.append(self.net_profit_margin(df))
+            results.append(self.net_profit_margin(df, data_type))
 
         if self._has_revenue_growth_data(df):
-            results.append(self.revenue_growth(df))
+            results.append(self.revenue_growth(df, data_type))
 
         return results
 
-    def gross_profit_margin(self, df: pd.DataFrame) -> Dict[str, Any]:
-        """
-        Calculate Gross Profit Margin.
+    def _calculate_summary_stats(self, series: pd.Series, kpi_name: str, unit: str) -> Dict[str, Any]:
+        """Calculate summary statistics for a KPI series."""
+        clean_series = series.replace([np.inf, -np.inf], np.nan).dropna()
 
-        Formula: ((Revenue - COGS) / Revenue) * 100
-        """
-        revenue = self._find_column(df, ['revenue', 'sales', 'income'])
-        cogs = self._find_column(df, ['cogs', 'cost_of_goods', 'cost_of_sales'])
+        if len(clean_series) == 0:
+            return {
+                'kpi': kpi_name, 'unit': unit, 'series': series,
+                'mean': None, 'median': None, 'std': None,
+                'min': None, 'max': None, 'n_observations': 0,
+                'error': 'No valid observations'
+            }
 
-        if revenue is None or cogs is None:
+        return {
+            'kpi': kpi_name, 'unit': unit, 'series': series,
+            'mean': round(clean_series.mean(), 2),
+            'median': round(clean_series.median(), 2),
+            'std': round(clean_series.std(), 2),
+            'min': round(clean_series.min(), 2),
+            'max': round(clean_series.max(), 2),
+            'n_observations': len(clean_series),
+            'current': round(clean_series.iloc[-1], 2) if len(clean_series) > 0 else None
+        }
+
+    def gross_profit_margin(self, df: pd.DataFrame, data_type: str = 'time_series') -> Dict[str, Any]:
+        """
+        Calculate Gross Profit Margin per observation.
+
+        Formula: ((Revenue - COGS) / Revenue) * 100 for each row
+        """
+        revenue_col = self._find_column(df, ['revenue', 'sales', 'income'])
+        cogs_col = self._find_column(df, ['cogs', 'cost_of_goods', 'cost_of_sales'])
+
+        if revenue_col is None or cogs_col is None:
             return {'kpi': 'Gross Profit Margin', 'value': None, 'unit': '%', 'error': 'Missing data'}
 
-        total_revenue = df[revenue].sum()
-        total_cogs = df[cogs].sum()
+        # Calculate per-observation gross margin
+        series = ((df[revenue_col] - df[cogs_col]) / df[revenue_col].replace(0, np.nan)) * 100
+        series.name = 'gross_margin'
 
-        if total_revenue == 0:
-            margin = 0
+        return self._calculate_summary_stats(series, 'Gross Profit Margin', '%')
+
+    def net_profit_margin(self, df: pd.DataFrame, data_type: str = 'time_series') -> Dict[str, Any]:
+        """
+        Calculate Net Profit Margin per observation.
+
+        Formula: (Net Profit / Revenue) * 100 for each row
+        """
+        revenue_col = self._find_column(df, ['revenue', 'sales', 'income'])
+        profit_col = self._find_column(df, ['net_profit', 'net_income', 'profit'])
+
+        if revenue_col is None:
+            return {'kpi': 'Net Profit Margin', 'value': None, 'unit': '%', 'error': 'Missing data'}
+
+        if profit_col is not None:
+            # Direct profit column available
+            series = (df[profit_col] / df[revenue_col].replace(0, np.nan)) * 100
         else:
-            margin = ((total_revenue - total_cogs) / total_revenue) * 100
-
-        return {
-            'kpi': 'Gross Profit Margin',
-            'value': round(margin, 2),
-            'unit': '%',
-            'total_revenue': total_revenue,
-            'total_cogs': total_cogs,
-            'gross_profit': total_revenue - total_cogs
-        }
-
-    def net_profit_margin(self, df: pd.DataFrame) -> Dict[str, Any]:
-        """
-        Calculate Net Profit Margin.
-
-        Formula: (Net Profit / Revenue) * 100
-        """
-        revenue = self._find_column(df, ['revenue', 'sales', 'income'])
-        net_profit = self._find_column(df, ['net_profit', 'net_income', 'profit'])
-
-        if revenue is None or net_profit is None:
-            # Try to calculate from revenue and expenses
-            expenses = self._find_column(df, ['expenses', 'costs', 'total_expenses'])
-            if revenue and expenses:
-                total_revenue = df[revenue].sum()
-                total_expenses = df[expenses].sum()
-                calculated_profit = total_revenue - total_expenses
-
-                if total_revenue == 0:
-                    margin = 0
-                else:
-                    margin = (calculated_profit / total_revenue) * 100
-
-                return {
-                    'kpi': 'Net Profit Margin',
-                    'value': round(margin, 2),
-                    'unit': '%',
-                    'total_revenue': total_revenue,
-                    'total_expenses': total_expenses,
-                    'net_profit': calculated_profit
-                }
-            else:
+            # Calculate profit from revenue - expenses
+            expenses_col = self._find_column(df, ['expenses', 'costs', 'total_expenses'])
+            if expenses_col is None:
                 return {'kpi': 'Net Profit Margin', 'value': None, 'unit': '%', 'error': 'Missing data'}
+            series = ((df[revenue_col] - df[expenses_col]) / df[revenue_col].replace(0, np.nan)) * 100
 
-        total_revenue = df[revenue].sum()
-        total_profit = df[net_profit].sum()
+        series.name = 'net_margin'
+        return self._calculate_summary_stats(series, 'Net Profit Margin', '%')
 
-        if total_revenue == 0:
-            margin = 0
-        else:
-            margin = (total_profit / total_revenue) * 100
-
-        return {
-            'kpi': 'Net Profit Margin',
-            'value': round(margin, 2),
-            'unit': '%',
-            'total_revenue': total_revenue,
-            'net_profit': total_profit
-        }
-
-    def revenue_growth(self, df: pd.DataFrame) -> Dict[str, Any]:
+    def revenue_growth(self, df: pd.DataFrame, data_type: str = 'time_series') -> Dict[str, Any]:
         """
-        Calculate Revenue Growth Rate.
+        Calculate Revenue Growth Rate per observation (period-over-period).
 
-        Formula: ((Current Period - Previous Period) / Previous Period) * 100
+        Formula: ((Current - Previous) / Previous) * 100 for each row
         """
-        revenue = self._find_column(df, ['revenue', 'sales', 'income'])
+        revenue_col = self._find_column(df, ['revenue', 'sales', 'income'])
 
-        if revenue is None or len(df) < 2:
+        if revenue_col is None or len(df) < 2:
             return {'kpi': 'Revenue Growth', 'value': None, 'unit': '%', 'error': 'Missing data'}
 
-        # Calculate growth between first half and second half
-        first_half = df[revenue].iloc[:len(df)//2].sum()
-        second_half = df[revenue].iloc[len(df)//2:].sum()
+        # Calculate period-over-period growth
+        series = df[revenue_col].pct_change() * 100
+        series.name = 'revenue_growth'
 
-        if first_half == 0:
-            growth = 0
-        else:
-            growth = ((second_half - first_half) / first_half) * 100
+        return self._calculate_summary_stats(series, 'Revenue Growth', '%')
 
-        return {
-            'kpi': 'Revenue Growth',
-            'value': round(growth, 2),
-            'unit': '%',
-            'first_period_revenue': first_half,
-            'second_period_revenue': second_half
-        }
-
-    def _find_column(self, df: pd.DataFrame, possible_names: List[str]) -> str:
+    def _find_column(self, df: pd.DataFrame, possible_names: List[str]) -> Optional[str]:
         """Find a column by checking multiple possible names."""
         for name in possible_names:
             for col in df.columns:
