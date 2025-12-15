@@ -192,15 +192,21 @@ class PDFReportBuilder:
                 html += f"<tr><td><strong>{var_name}</strong></td><td>{order}</td><td>{notation}</td><td>{interpretation}</td></tr>"
             html += "</table>"
 
-        # Add All Test Results
+        # Add All Test Results (Result column hidden, only Test and Passed shown)
+        # Note: Result data is printed to console for debugging but not shown in report
         html += "<h3>All Preprocessing Tests</h3>"
-        html += "<table><tr><th>Test</th><th>Result</th><th>Passed</th></tr>"
+        html += "<table><tr><th>Test</th><th>Passed</th></tr>"
         for result in test_results:
             test_name = result.get('test', 'Unknown')
-            test_result = str(result.get('result', 'N/A'))
             passed = result.get('passed', 'N/A')
+            passed_display = '✓ Yes' if passed == True else ('✗ No' if passed == False else str(passed))
 
-            html += f"<tr><td>{test_name}</td><td>{test_result[:100]}</td><td>{passed}</td></tr>"
+            # Print result to console for debugging (not shown in report)
+            test_result = result.get('result', {})
+            if test_result:
+                print(f"[DEBUG] {test_name}: {test_result}")
+
+            html += f"<tr><td>{test_name}</td><td>{passed_display}</td></tr>"
         html += "</table>"
 
         return html
@@ -316,6 +322,23 @@ class PDFReportBuilder:
                 for chart in forecast_charts:
                     if 'error' not in chart:
                         title = chart.get('title', 'Chart')
+                        image_base64 = chart.get('image', '')
+                        if image_base64:
+                            html += f"""
+                            <div class="chart">
+                                <h4>{title}</h4>
+                                <img src="data:image/png;base64,{image_base64}" alt="{title}">
+                            </div>
+                            """
+
+            # IRF (Impulse Response Function) Visualization
+            irf_charts = [c for c in charts if c.get('type') == 'irf']
+            if irf_charts:
+                html += "<h3>Impulse Response Functions</h3>"
+                html += "<p><em>Shows the dynamic response of variables to a one-unit shock.</em></p>"
+                for chart in irf_charts:
+                    if 'error' not in chart:
+                        title = chart.get('title', 'IRF')
                         image_base64 = chart.get('image', '')
                         if image_base64:
                             html += f"""

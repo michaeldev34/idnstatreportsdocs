@@ -99,12 +99,28 @@ class ModelsRunner:
         self.results.extend(results)
     
     def _select_best_model(self) -> Dict[str, Any]:
-        """Select best model based on performance metrics."""
+        """Select best model based on Mean Absolute Error (MAE).
+
+        Lower MAE is better, indicating more accurate predictions.
+        """
         if not self.results:
             return {}
-        
-        # Simple selection: highest R² or lowest error
-        best = max(self.results, key=lambda x: x.get('r_squared', 0))
+
+        # Filter results that have MAE values
+        results_with_mae = [r for r in self.results if 'mae' in r and r['mae'] is not None]
+
+        if results_with_mae:
+            # Select model with lowest MAE (lower is better)
+            best = min(results_with_mae, key=lambda x: x.get('mae', float('inf')))
+        else:
+            # Fallback: if no MAE available, use MSE as alternative
+            results_with_mse = [r for r in self.results if 'mse' in r and r['mse'] is not None]
+            if results_with_mse:
+                best = min(results_with_mse, key=lambda x: x.get('mse', float('inf')))
+            else:
+                # Last resort: use first result
+                best = self.results[0] if self.results else {}
+
         return best
     
     def summary_table(self) -> pd.DataFrame:
