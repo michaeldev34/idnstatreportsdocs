@@ -154,16 +154,28 @@ class AutoStatReport:
         print(f"   Category: {self.metadata['size_category']}")
         
         # Step 2: Calculate KPIs
+        kpi_series_dict = {}
         if not skip_kpis:
             print("\n📈 Step 2/6: Calculating KPIs...")
             kpi_runner = KPIsRunner(label=self.label)
             self.kpis = kpi_runner.run(df, self.metadata)
+            kpi_series_dict = kpi_runner.get_kpi_series()
             print(f"   Calculated {len(self.kpis)} KPIs")
+
+            # Add KPI series to DataFrame for full analysis
+            if kpi_series_dict:
+                print(f"   Adding {len(kpi_series_dict)} KPI series to analysis")
+                df_with_kpis = df.copy()
+                for kpi_name, kpi_series in kpi_series_dict.items():
+                    # Clean column name for DataFrame
+                    col_name = f"KPI_{kpi_name.replace(' ', '_')}"
+                    df_with_kpis[col_name] = kpi_series.values
+                df = df_with_kpis
         else:
             print("\n⏭️  Step 2/6: Skipping KPIs")
             self.kpis = pd.DataFrame()
-        
-        # Step 3: Preprocessing
+
+        # Step 3: Preprocessing (now includes KPI series)
         if not skip_preprocessing:
             print("\n🔧 Step 3/6: Preprocessing data...")
             preprocessing_runner = PreprocessingRunner(self.metadata, label=self.label)
