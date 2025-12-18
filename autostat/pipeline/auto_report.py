@@ -46,7 +46,7 @@ class AutoStatReport:
 
     # Department column mappings - columns that belong to each department
     DEPARTMENT_COLUMNS = {
-        'marketing': ['visitors', 'conversions', 'marketing_spend', 'ad_spend', 'cost', 'leads', 'traffic', 'cac', 'cpl', 'cpa', 'clicks', 'impressions', 'ctr', 'cpm', 'campaigns'],
+        'marketing': ['visitors', 'conversions', 'marketing_spend', 'ad_spend', 'cost', 'leads', 'traffic', 'cac', 'cpl', 'cpa', 'clicks', 'impressions', 'ctr', 'cpm', 'campaigns', 'revenue', 'roi', 'roas'],
         'sales': ['orders', 'deals_won', 'opportunities', 'sales', 'revenue', 'total_sales', 'deal_size', 'win_rate', 'pipeline', 'quota', 'bookings'],
         'finance': ['cogs', 'expenses', 'net_profit', 'profit', 'income', 'cost_of_goods', 'margin', 'ebitda', 'cashflow', 'assets', 'liabilities', 'equity'],
         'operations': ['units_produced', 'production_hours', 'uptime', 'planned_time', 'units', 'production', 'output', 'hours', 'efficiency', 'throughput', 'cycle_time', 'defects', 'yield'],
@@ -190,9 +190,11 @@ class AutoStatReport:
         # Step 4: Statistical modeling
         if not skip_modeling:
             print("\n🤖 Step 4/6: Running statistical models...")
-            model_runner = ModelsRunner(self.metadata, label=self.label)
+            model_runner = ModelsRunner(self.metadata, label=self.label, department=self.department)
             self.model_results = model_runner.run(processed_df)
             print(f"   Fitted {self.model_results['models_run']} models")
+            if self.model_results.get('department_regressions'):
+                print(f"   📊 Department regressions: {len(self.model_results['department_regressions'])} models")
             if self.model_results.get('best_model'):
                 best = self.model_results['best_model']
                 print(f"   Best model: {best.get('model', 'Unknown')}")

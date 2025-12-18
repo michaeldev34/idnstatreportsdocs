@@ -11,6 +11,7 @@ from autostat.modeling.nonlinear_models import NonlinearModels
 from autostat.modeling.time_series_models import TimeSeriesModels
 from autostat.modeling.panel_models import PanelModels
 from autostat.modeling.bigdata_models import BigDataModels
+from autostat.modeling.department_regressions import DepartmentRegressionRunner
 
 
 class ModelsRunner:
@@ -23,22 +24,26 @@ class ModelsRunner:
     - Linearity (linear vs non-linear)
     """
     
-    def __init__(self, metadata: Dict[str, Any], label: str = "default"):
+    def __init__(self, metadata: Dict[str, Any], label: str = "default", department: str = None):
         """
         Args:
             metadata: Metadata about the dataset
             label: Identifier for this modeling run
+            department: Optional department filter for regressions
         """
         self.metadata = metadata
         self.label = label
+        self.department = department
         self.results = []
-        
+        self.department_regression_results = []
+
         # Initialize model modules
         self.linear_models = LinearModels()
         self.nonlinear_models = NonlinearModels()
         self.time_series_models = TimeSeriesModels()
         self.panel_models = PanelModels()
         self.bigdata_models = BigDataModels()
+        self.department_regressions = DepartmentRegressionRunner(department)
     
     def run(self, df: pd.DataFrame) -> Dict[str, Any]:
         """
@@ -66,11 +71,15 @@ class ModelsRunner:
         else:
             # Big data: machine learning models
             self._run_big_data_models(df, data_type)
-        
+
+        # Run department-specific regressions (always)
+        self._run_department_regressions(df)
+
         return {
             'models_run': len(self.results),
             'results': self.results,
-            'best_model': self._select_best_model()
+            'best_model': self._select_best_model(),
+            'department_regressions': self.department_regression_results
         }
     
     def _run_small_time_series(self, df: pd.DataFrame):
@@ -97,7 +106,26 @@ class ModelsRunner:
         """Run machine learning models for big data."""
         results = self.bigdata_models.run_models(df, data_type)
         self.results.extend(results)
-    
+
+    def _run_department_regressions(self, df: pd.DataFrame):
+        """Run department-specific regression models from metrics document."""
+        results = self.department_regressions.run(df, self.metadata)
+        self.department_regression_results = results
+        # Also add to main results for best model selection
+        for r in results:
+            # Add to main results with standardized format
+            self.results.append({
+                'model': r['model_name'],
+                'department': r['department'],
+                'r_squared': r['r_squared'],
+                'adj_r_squared': r['adj_r_squared'],
+                'mae': r['mae'],
+                'n_obs': r['n_observations'],
+                'f_statistic': r['f_statistic'],
+                'f_pvalue': r['f_pvalue'],
+                'interpretation': r['interpretation']
+            })
+
     def _select_best_model(self) -> Dict[str, Any]:
         """Select best model based on Mean Absolute Error (MAE).
 

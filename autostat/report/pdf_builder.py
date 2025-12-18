@@ -267,29 +267,80 @@ class PDFReportBuilder:
         return html
     
     def _format_models(self, models: Dict[str, Any]) -> str:
-        """Format model results."""
+        """Format model results including department-specific regressions."""
         if not models or 'results' not in models:
             return "<p>No model results available.</p>"
-        
+
         results = models['results']
-        
-        html = "<table><tr><th>Model</th><th>R²</th><th>Details</th></tr>"
+        dept_regs = models.get('department_regressions', [])
+
+        # General models table
+        html = "<h3>General Statistical Models</h3>"
+        html += "<table class='data-table'><tr><th>Model</th><th>R²</th><th>MAE</th><th>Details</th></tr>"
         for result in results:
+            if result.get('department'):  # Skip dept regressions here
+                continue
             model_name = result.get('model', 'Unknown')
             r_squared = result.get('r_squared', 'N/A')
-            
+            mae = result.get('mae', 'N/A')
+            if isinstance(mae, float):
+                mae = f"{mae:.4f}"
+
             # Extract key details
             details = []
             if 'n_obs' in result:
                 details.append(f"N={result['n_obs']}")
             if 'mse' in result:
                 details.append(f"MSE={result['mse']:.4f}")
-            
+
             details_str = ', '.join(details) if details else 'See full results'
-            
-            html += f"<tr><td>{model_name}</td><td>{r_squared}</td><td>{details_str}</td></tr>"
+
+            html += f"<tr><td>{model_name}</td><td>{r_squared}</td><td>{mae}</td><td>{details_str}</td></tr>"
         html += "</table>"
-        
+
+        # Department-specific regressions
+        if dept_regs:
+            html += "<h3>📊 Department-Specific Regression Models</h3>"
+            html += "<p><em>Based on empirical research from business and economics literature.</em></p>"
+
+            for reg in dept_regs:
+                dept = reg.get('department', 'Unknown').capitalize()
+                model_name = reg.get('model_name', 'Unknown')
+                dep_var = reg.get('dependent_variable', 'N/A')
+                predictors = reg.get('predictors', [])
+                r_sq = reg.get('r_squared', 'N/A')
+                adj_r_sq = reg.get('adj_r_squared', 'N/A')
+                mae = reg.get('mae', 'N/A')
+                n_obs = reg.get('n_observations', 'N/A')
+                interp = reg.get('interpretation', '')
+                coefficients = reg.get('coefficients', [])
+
+                html += f"""
+                <div class="regression-box" style="border: 1px solid #ddd; padding: 15px; margin: 15px 0; border-radius: 5px; background: #f9f9f9;">
+                    <h4 style="margin-top: 0; color: #2c3e50;">🏢 {dept}: {model_name}</h4>
+                    <p><strong>Dependent Variable:</strong> {dep_var}</p>
+                    <p><strong>Predictors:</strong> {', '.join(predictors)}</p>
+                    <p><strong>R²:</strong> {r_sq} | <strong>Adj R²:</strong> {adj_r_sq} | <strong>MAE:</strong> {mae} | <strong>N:</strong> {n_obs}</p>
+                """
+
+                # Coefficients table
+                if coefficients:
+                    html += "<table class='data-table' style='font-size: 0.9em;'>"
+                    html += "<tr><th>Variable</th><th>Coefficient</th><th>p-value</th><th>Sign</th><th>Expected</th><th>Match</th></tr>"
+                    for coef in coefficients:
+                        html += f"""<tr>
+                            <td>{coef.get('variable', 'N/A')}</td>
+                            <td>{coef.get('coefficient', 'N/A')}</td>
+                            <td>{coef.get('p_value', 'N/A')} {coef.get('significance', '')}</td>
+                            <td>{coef.get('sign', '')}</td>
+                            <td>{coef.get('expected', '?')}</td>
+                            <td>{coef.get('match', '')}</td>
+                        </tr>"""
+                    html += "</table>"
+
+                html += f"<p style='font-style: italic; color: #666; margin-bottom: 0;'>📖 {interp}</p>"
+                html += "</div>"
+
         return html
     
     def _format_explanation(self, explanation: Dict[str, Any]) -> str:
